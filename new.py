@@ -417,7 +417,9 @@ def create_data_export_section(latest_data, daily_data):
 
 def main():
     """Main application"""
-    st.image("logo.png", width=200)
+    col_left, col_center, col_right = st.columns([1, 1, 1])
+    with col_center:
+        st.image("logo.png", width=200)
     create_header()
 
     with st.spinner("🔄 Loading groundwater data..."):
