@@ -189,12 +189,33 @@ def create_status_alerts(latest_data):
         st.info("Recent Activity:\n- Network uptime: 98.5%\n- Data quality: 99.2%\n- Last system maintenance: 2 days ago")
 
 def create_interactive_map(latest_data):
-    """Enhanced interactive map with clustering and canvas rendering for performance"""
+    """Enhanced interactive map with clustering, canvas, and state persistence"""
     st.subheader("🗺️ Station Map")
-    center_lat, center_lon = latest_data['gw_lat'].mean(), latest_data['gw_lon'].mean()
+    saved_state = st.session_state.get('map_state') or {}
+
+    def _parse_center(center_value):
+        try:
+            if isinstance(center_value, (list, tuple)) and len(center_value) >= 2:
+                return float(center_value[0]), float(center_value[1])
+            if isinstance(center_value, dict):
+                # Support keys from st_folium: {'lat': ..., 'lng': ...}
+                lat = center_value.get('lat') or center_value.get('latitude')
+                lon = center_value.get('lng') or center_value.get('lon') or center_value.get('longitude')
+                if lat is not None and lon is not None:
+                    return float(lat), float(lon)
+        except Exception:
+            pass
+        return None
+
+    parsed_center = _parse_center(saved_state.get('center'))
+    if parsed_center is None:
+        center_lat, center_lon = latest_data['gw_lat'].mean(), latest_data['gw_lon'].mean()
+    else:
+        center_lat, center_lon = parsed_center
+    zoom_start = saved_state.get('zoom') or 10
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=10,
+        zoom_start=zoom_start,
         tiles='CartoDB positron',
         control_scale=True,
         prefer_canvas=True
@@ -233,7 +254,15 @@ def create_interactive_map(latest_data):
             ).add_to(cluster)
 
     folium.LayerControl(collapsed=True).add_to(m)
-    st_folium(m, width=700, height=500)
+    map_state = st_folium(m, height=500, key='station_map') or {}
+    try:
+        new_center = _parse_center(map_state.get('center'))
+        st.session_state['map_state'] = {
+            'center': new_center if new_center is not None else [center_lat, center_lon],
+            'zoom': map_state.get('zoom') or zoom_start
+        }
+    except Exception:
+        pass
 
 def create_time_series_analysis(daily_data):
     """Advanced time series visualization with custom date and location filters"""
@@ -419,14 +448,22 @@ def main():
     """Main application"""
     col_left, col_center, col_right = st.columns([1, 1, 1])
     with col_center:
-        st.image("logo.png", width=200)
+        st.image("logo.png", width=400)
     create_header()
 
     with st.spinner("🔄 Loading groundwater data..."):
         data = load_data()
         if data[0] is not None:
             sites, daily_data, trends, recharge, lag = data
-            latest_data = simulate_real_time_readings(daily_data)
+            # Persist latest_data to avoid re-renders causing map blinking
+            if 'latest_data' not in st.session_state:
+                st.session_state['latest_data'] = simulate_real_time_readings(daily_data)
+
+            col_refresh_left, col_refresh_mid, col_refresh_right = st.columns([1, 1, 2])
+            with col_refresh_left:
+                if st.button("🔄 Refresh Live Data"):
+                    st.session_state['latest_data'] = simulate_real_time_readings(daily_data)
+            latest_data = st.session_state['latest_data']
 
             display_system_overview(latest_data)
             create_status_alerts(latest_data)
